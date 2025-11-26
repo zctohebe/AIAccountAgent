@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Accounting Agent — Demo</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <h1>AI Accounting Agent</h1>
+        <p class="sub">Upload invoices, ask questions, and get suggested journal entries.</p>
+      </header>
+
+      <main class="main">
+        <section class="chat-section">
+          <div id="messages" class="messages" aria-live="polite"></div>
+          <div class="input-row">
+            <input id="fileInput" type="file" />
+            <textarea id="prompt" placeholder="Type a question or describe the invoice..."></textarea>
+            <div class="controls">
+              <button id="sendBtn" class="primary">Send</button>
+              <button id="clearBtn" class="secondary">Clear</button>
+            </div>
+          </div>
+        </section>
+
+        <aside class="sidebar">
+          <h3>Tips</h3>
+          <ul>
+            <li>Try: "Generate accounting entry for a $1200 vendor invoice dated 2025-11-01"</li>
+            <li>Upload a PDF or image (Textract integration later)</li>
+            <li>Responses include suggested debits/credits and explanation</li>
+          </ul>
+        </aside>
+      </main>
+
+      <footer class="footer">Powered by Bedrock (demo) • Logs are not persisted in this starter</footer>
+    </div>
+
+    <script>
+      // Ensure frontend calls the backend dev server at localhost:8000
+      // Change this if your backend runs at a different host/port
+      window.__API_BASE__ = 'http://localhost:8000';
+      location.reload();
+    </script>
+    <script src="./app.js"></script>
+  </body>
+</html>

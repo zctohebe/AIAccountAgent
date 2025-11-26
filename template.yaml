@@ -1,0 +1,33 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Simple SAM template for AI Accounting Agent backend
+
+Resources:
+  ChatFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ai-accounting-chat
+      Runtime: python3.9
+      Handler: backend.handler.lambda_handler
+      CodeUri: .
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /chat
+            Method: post
+
+Parameters:
+  BedrockModelId:
+    Type: String
+    Description: Bedrock model id to use for inference
+
+Outputs:
+  ApiUrl:
+    Description: "API Gateway endpoint"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
