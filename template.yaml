@@ -2,6 +2,14 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: Simple SAM template for AI Accounting Agent backend
 
+Parameters:
+  BedrockModelId:
+    Type: String
+    Description: Bedrock model id to use for inference
+  UploadBucketName:
+    Type: String
+    Description: S3 bucket name to store uploads
+
 Resources:
   ChatFunction:
     Type: AWS::Serverless::Function
@@ -15,17 +23,21 @@ Resources:
       Environment:
         Variables:
           BEDROCK_MODEL_ID: !Ref BedrockModelId
+          UPLOAD_BUCKET: !Ref UploadBucketName
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref UploadBucketName
       Events:
-        Api:
+        ChatApi:
           Type: Api
           Properties:
             Path: /chat
             Method: post
-
-Parameters:
-  BedrockModelId:
-    Type: String
-    Description: Bedrock model id to use for inference
+        PresignApi:
+          Type: Api
+          Properties:
+            Path: /presign
+            Method: post
 
 Outputs:
   ApiUrl:

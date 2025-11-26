@@ -22,28 +22,61 @@ function setLoading(flag){
   $sendBtn.textContent = flag ? 'Sending...' : 'Send'
 }
 
+async function uploadFileWithPresign(file){
+  // request presign
+  const presignUrl = apiBase + '/presign'
+  const res = await fetch(presignUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename: file.name, content_type: file.type })
+  })
+  const data = await res.json()
+  if (!data || !data.presigned) throw new Error('Failed to get presigned info')
+
+  const { url, fields, key } = data.presigned
+
+  // build form data
+  const form = new FormData()
+  Object.keys(fields || {}).forEach(k => form.append(k, fields[k]))
+  form.append('file', file)
+
+  const uploadRes = await fetch(url, {
+    method: 'POST',
+    body: form
+  })
+  if (!uploadRes.ok) throw new Error('Upload failed')
+
+  return key
+}
+
 async function sendPrompt(){
   if (isLoading) return
   const text = $prompt.value.trim()
   if (!text && !$fileInput.files.length) return
 
-  // If file selected include filename in the prompt for now
-  let fileNote = ''
-  if ($fileInput.files.length){
-    const f = $fileInput.files[0]
-    fileNote = `\n\n[Attached file: ${f.name} - size ${f.size} bytes]`
-  }
-
-  const prompt = text + fileNote
-
-  appendMessage('user', text || `[Uploaded ${$fileInput.files[0].name}]`)
   setLoading(true)
   try{
+    let promptText = text
+    if ($fileInput.files.length){
+      const f = $fileInput.files[0]
+      appendMessage('user', `[Uploading ${f.name}...]`)
+      try{
+        const s3key = await uploadFileWithPresign(f)
+        appendMessage('user', `[Uploaded ${f.name} -> s3://${s3key}]`)
+        promptText += `\n\n[Attached S3 object: s3://${s3key}]`
+      }catch(uerr){
+        appendMessage('assistant', 'File upload failed: ' + uerr)
+      }
+    } else {
+      appendMessage('user', text)
+    }
+
+    // send chat request
     const url = apiBase + '/chat'
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt })
+      body: JSON.stringify({ prompt: promptText })
     })
     const data = await res.json()
     const reply = data && data.model_response ? data.model_response : JSON.stringify(data)

@@ -8,48 +8,44 @@ Overview
 - `frontend/` ¡ª Static single-page UI (`index.html`, `app.js`, `styles.css`).
 - `template.yaml` ¡ª AWS SAM template for deploying the Lambda function.
 
-Local development
+Local development (Windows)
+
+We provide a single Windows starter script to launch backend and frontend for development.
 
 Prerequisites
 
 - Python 3.9+ and `pip`.
-- Node.js / a static file server (optional) or any simple HTTP server to serve `frontend/`.
-- (Optional) AWS SAM CLI to deploy using `template.yaml`.
+- (Optional) AWS SAM CLI and Docker if you want to run `sam local`.
 
-Start backend locally
+Start everything
 
-PowerShell:
+From repository root run:
 
 ```powershell
-# from repository root
-pip install -r backend/requirements.txt
-python backend/handler.py
+.\scripts\start_all.ps1
 ```
 
-Start frontend locally
+This opens two PowerShell windows: one for the backend (runs `backend/handler.py`) and one for the frontend (serves `frontend/` on port 8080). The frontend is available at `http://localhost:8080` and the backend at `http://localhost:8000`.
 
-Option 1: Use a simple static server (Node.js `http-server`):
+Environment
 
-```bash
-npm install -g http-server
-cd frontend
-http-server -c-1
-```
+- Edit `env.json` in repository root to provide `BEDROCK_MODEL_ID`, `UPLOAD_BUCKET`, and `AWS_REGION` for local testing with real AWS resources.
 
-Option 2: Use Python's simple HTTP server:
+S3 upload / presign flow (local dev)
 
-```bash
-cd frontend
-python -m http.server 8080
-```
-
-Configuration
-
-- By default the frontend expects the backend at `http://localhost:8000`. Adjust `window.__API_BASE__` in `frontend/index.html` or set a reverse proxy.
+- The frontend requests a presigned POST from `POST /presign` with JSON `{ "filename": "...", "content_type": "..." }`.
+- The backend returns presigned fields and URL. Frontend uploads directly to S3 with a form POST.
+- For local development, if no `UPLOAD_BUCKET` environment variable is set, the backend returns a mock presign response and the file upload step will be skipped.
 
 Deploy to AWS
 
-- Use the `template.yaml` with SAM CLI: `sam build && sam deploy --guided` and provide `BedrockModelId`.
+- The SAM template expects an `UploadBucketName` parameter. Create an S3 bucket and deploy with:
+
+```bash
+sam build
+sam deploy --guided
+# Provide BedrockModelId and UploadBucketName when prompted
+```
 
 Contributing
 

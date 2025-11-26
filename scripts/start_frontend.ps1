@@ -10,16 +10,20 @@ if (-not (Test-Path $frontendDir)) {
     exit 1
 }
 
-Set-Location $frontendDir
+# Start server from frontend directory but do not change current process working directory
 $port = 8080
-Write-Host "Starting simple HTTP server at http://0.0.0.0:$port"
+Write-Host "Starting simple HTTP server at http://0.0.0.0:$port (launched in background)"
 
-# Prefer python3 if available
+# Use Start-Process to run server with working directory set, but leave current directory unchanged
+$pythonCmd = $null
 if (Get-Command python3 -ErrorAction SilentlyContinue) {
-    python3 -m http.server $port
+    $pythonCmd = 'python3'
 } elseif (Get-Command python -ErrorAction SilentlyContinue) {
-    python -m http.server $port
+    $pythonCmd = 'python'
 } else {
     Write-Error "No python executable found in PATH. Install Python or add it to PATH."
     exit 1
 }
+
+Start-Process -FilePath $pythonCmd -ArgumentList '-m','http.server',$port -WorkingDirectory $frontendDir
+Write-Host "Frontend server started in background. Current directory remains: $(Get-Location)"
