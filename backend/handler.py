@@ -4,145 +4,164 @@ import json
 import logging
 import boto3
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import quote
 from datetime import datetime
 import uuid
+from urllib.parse import quote
 
-# ����һ�� Logger ����
-logger = logging.getLogger()
-# ������־����Ϊ DEBUG����ʾ��¼���м������־��DEBUG��INFO��WARNING��ERROR��CRITICAL��
+# Ensure repository root on sys.path for imports when running directly
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
+# Optional external dependencies
+try:
+    import requests  # for bearer token flow (not mandatory)
+except Exception:
+    requests = None
+
+# Import report executor (used for [Run Report])
+try:
+    from backend.report_executor import execute as execute_report
+except Exception:
+    execute_report = None
+
+# Logger setup (clean, no garbled text)
+logger = logging.getLogger("handler")
 logger.setLevel(logging.DEBUG)
-# ����һ������̨����� Handler
-console_handler = logging.StreamHandler()
-# ������־��ʽ������ӵ� Handler ��
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-console_handler.setFormatter(formatter)
-# �� Handler ��ӵ� Logger
-logger.addHandler(console_handler)
+if not logger.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    logger.addHandler(_h)
 
-#model_id = "deepseek-chat:1.0" #deepseek-chat:1.0 ,deepseek.r1-v1:0
-aws_access_key_id=''
-aws_secret_access_key=''
-region_name = 'us-east-1'
+# Configuration loading from env.json (if present)
+config = {}
+ENV_JSON = os.path.join(REPO_ROOT, 'env.json')
+if os.path.exists(ENV_JSON):
+    try:
+        with open(ENV_JSON, 'r', encoding='utf-8') as f:
+            config = json.load(f) or {}
+        logger.info('Loaded configuration from env.json')
+    except Exception as e:
+        logger.warning('Failed to load env.json: %s', e)
+
+
+def _cfg(key, default=''):
+    if key in config:
+        return config.get(key, default)
+    return os.environ.get(key, default)
+
+
+def _bool_cfg(key, default=False):
+    val = _cfg(key, None)
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.lower() in ('1', 'true', 'yes', 'on')
+    try:
+        return bool(int(val))
+    except Exception:
+        return default
+
+AWS_ACCESS_KEY_ID = _cfg('AWS_ACCESS_KEY_ID') or ''
+AWS_SECRET_ACCESS_KEY = _cfg('AWS_SECRET_ACCESS_KEY') or ''
+AWS_SESSION_TOKEN = _cfg('AWS_SESSION_TOKEN') or ''
+AWS_REGION = _cfg('AWS_REGION') or 'us-east-1'
+BEDROCK_MODEL_ID = _cfg('BEDROCK_MODEL_ID') or 'deepseek-chat:1.0'
+
+RESULTS_DIR = os.path.join(REPO_ROOT, 'results')
+RESOURCES_DIR = os.path.join(REPO_ROOT, 'resources')
+TASKS_PATH = os.path.join(REPO_ROOT, 'tasks.json')
+TASKS_FALLBACK_PATH = os.path.join(RESOURCES_DIR, 'tasks.json')
+SCHEDULER_STATE_PATH = os.path.join(RESOURCES_DIR, 'scheduler_state.json')
+NOTIFICATIONS_PATH = os.path.join(RESOURCES_DIR, 'notifications.json')
+
+
+def _ensure_parent_dir(path: str):
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    except Exception:
+        pass
+
+
+def _extract_bearer_token(raw: str) -> str:
+    if not raw:
+        return ''
+    token = raw.strip()
+    if token.startswith('AWS_BEARER_TOKEN_BEDROCK='):
+        token = token.split('=', 1)[1]
+    if token.lower().startswith('bearer '):
+        token = token.split(' ', 1)[1]
+    return token.strip()
+
+
+def _invoke_with_bearer(model_id: str, payload: dict, token: str):
+    if not requests:
+        return {"ok": False, "model_response": f"(mock) echo: {payload['messages'][-1]['content']}"}
+    token = _extract_bearer_token(token)
+    if not token:
+        return {"ok": False, "model_response": f"(mock) echo: {payload['messages'][-1]['content']}"}
+    encoded_model = quote(model_id, safe='')
+    url = f"https://bedrock-runtime.{AWS_REGION}.amazonaws.com/model/{encoded_model}/invoke"
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+    try:
+        resp = requests.post(url, data=json.dumps(payload), headers=headers, timeout=60)
+        resp.raise_for_status()
+        try:
+            body = resp.json()
+        except Exception:
+            body = resp.text
+        return {"ok": True, "model_response": body}
+    except Exception as e:
+        logger.warning('Bearer invocation failed: %s', e)
+        return {"ok": False, "model_response": f"(mock) echo: {payload['messages'][-1]['content']}", "error": str(e)}
+
 
 def call_bedrock(prompt: str):
-    """Invoke Bedrock model. This function uses a best-effort boto3 client name and returns a safe mock on error.
-    Replace the invocation details with the exact Bedrock SDK call for your environment.
-    """
-    model_id = os.environ.get("BEDROCK_MODEL_ID", "deepseek-chat:1.0")
-    try:
-            client = boto3.client(service_name='bedrock-runtime',aws_access_key_id=aws_access_key_id,aws_secret_access_key=aws_secret_access_key,region_name=region_name)
-            logger.info("Created Bedrock runtime client")
-    except Exception:
-        try:
-            client = boto3.client("bedrock")
-            logger.info("Created Bedrock client")
-        except Exception:
-            client = None
-            logger.info("Did not Created Bedrock client")
+    """Invoke Bedrock or return mock if not available. Removes previous garbled strings."""
+    # Mock mode
+    if _bool_cfg('BEDROCK_MOCK') or _bool_cfg('USE_MOCK_BEDROCK') or os.environ.get('BEDROCK_MOCK') == '1':
+        return {"ok": False, "model_response": f"(mock) echo: {prompt}"}
 
     payload = {
-            "messages": [
-                {
-                    "role": "����һ��AI�������",
-                    "content": prompt
-                }
-            ],
-            "temperature": 0.5,
-            "top_p": 0.9,
-            "max_tokens": 500
-        }
-    
+        "messages": [{"role": "你是一个AI会计助手", "content": prompt}],
+        "temperature": 0.5,
+        "top_p": 0.9,
+        "max_tokens": 500
+    }
+
+    bearer_raw = _cfg('AWS_BEARER_TOKEN_BEDROCK') or os.environ.get('AWS_BEARER_TOKEN_BEDROCK', '')
+    if bearer_raw:
+        return _invoke_with_bearer(BEDROCK_MODEL_ID, payload, bearer_raw)
 
     client = None
     try:
-        if aws_access_key_id and aws_secret_access_key:
-            client = boto3.client(
-                service_name='bedrock-runtime',
-                aws_access_key_id=aws_access_key_id,
-                aws_secret_access_key=aws_secret_access_key,
-                aws_session_token=aws_session_token or None,
-                region_name=region_name,
-            )
-            logger.info('Created Bedrock runtime client using provided AWS_ACCESS_KEY_ID')
+        if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+            client = boto3.client('bedrock-runtime',
+                                  aws_access_key_id=AWS_ACCESS_KEY_ID,
+                                  aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+                                  aws_session_token=AWS_SESSION_TOKEN or None,
+                                  region_name=AWS_REGION)
         else:
-            client = boto3.client('bedrock-runtime', region_name=region_name)
-            logger.info('Created Bedrock runtime client using default credential chain')
+            client = boto3.client('bedrock-runtime', region_name=AWS_REGION)
+        logger.info('Created bedrock-runtime client')
     except Exception as e:
         logger.warning('Failed to create bedrock-runtime client: %s', e)
         try:
-            client = boto3.client('bedrock', region_name=region_name)
-            logger.info('Created legacy Bedrock client')
+            client = boto3.client('bedrock', region_name=AWS_REGION)
+            logger.info('Created legacy bedrock client')
         except Exception as e2:
-            client = None
             logger.warning('Could not create any Bedrock client: %s', e2)
-
-
-        #resp = client.invoke_model(modelId=model_id,body='{"input_data": "生成一段关于未来科技的短文�?}')
-        output = resp['body'].read().decode('utf-8')
-        print("模型输出�?, output)
-        body = None
-
-
-    # Response shapes differ; try to extract text safely.
-
-        return {"ok": False, "model_response": f"(mock) echo: {prompt}"}
+            return {"ok": False, "model_response": f"(mock) echo: {prompt}"}
 
     try:
-        # NOTE: Replace this call with the correct Bedrock runtime invocation for your SDK version.
-
-        resp = client.invoke_model(modelId=model_id, contentType="application/json", body=json.dumps(payload))
-        output = resp['body'].read().decode('utf-8')
-        print("模型输出�?, output)
-        body = None
-        if isinstance(resp, dict):
-            body = resp.get("body") or resp.get("Body") or resp
-        else:
-            body = resp
-
-        try:
-            if isinstance(body, (bytes, bytearray)):
-                text = body.decode("utf-8")
-            else:
-        return {"ok": False, "error": str(e), "model_response": f"(mock) echo: {prompt}"}
-                try:
-                    parsed = json.loads(json.dumps(body))
-                    # try common response shapes
-    # Prefer explicit path-based routing if provided by API Gateway
-    if path and path.endswith("/presign"):
-        result = handle_presign_request(data)
-    else:
-        # Allow clients to request presign via action in payload
-        if isinstance(data, dict) and data.get("action") == "presign":
-            result = handle_presign_request(data)
-        else:
-            result = handle_chat_request(data)
-                            text = json.dumps(parsed['output'])
-                        elif parsed.get('content'):
-                            text = json.dumps(parsed['content'])
-                        else:
-        return {"ok": False, "error": str(e), "model_response": f"(mock) echo: {prompt}"}
-                    else:
-                        text = str(parsed)
-                except Exception:
-    prompt = data.get("prompt", "Hello from AI Accounting Agent")
-    result = call_bedrock(prompt)
-            text = str(body)
-        return {"ok": True, "model_response": text}
+        resp = client.invoke_model(modelId=BEDROCK_MODEL_ID, contentType="application/json", body=json.dumps(payload))
+        raw = resp['body'].read().decode('utf-8')
+        return {"ok": True, "model_response": raw}
     except Exception as e:
-        err_str = str(e)
-        if 'UnrecognizedClientException' in err_str or 'The security token included in the request is invalid' in err_str:
-            logger.error('Bedrock invocation failed due to invalid credentials: %s', err_str)
-            guidance = (
-                'Invalid AWS credentials. To call Bedrock without running `aws login`, set the '
-                'environment variables AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (and AWS_SESSION_TOKEN if needed), '
-                'or set BEDROCK_MOCK=1 or USE_MOCK_BEDROCK=true to use local mock responses. You can also put these values into env.json in the repository root.'
-            )
-            logger.error(guidance)
-            return {"ok": False, "error": err_str, "model_response": f"(mock) echo: {prompt}", "guidance": guidance}
-
-        logger.exception("Bedrock invocation failed")
-        return {"ok": False, "error": err_str, "model_response": f"(mock) echo: {prompt}"}
+        logger.warning('Bedrock invocation failed: %s', e)
+        return {"ok": False, "error": str(e), "model_response": f"(mock) echo: {prompt}"}
 
 
 def _read_json(path: str, default):
@@ -188,24 +207,12 @@ def _create_task_from_prompt(prompt: str):
     task_id = "task-" + datetime.utcnow().strftime("%Y%m%d%H%M%S") + "-" + uuid.uuid4().hex[:6]
     if not output_path:
         output_path = f"results/{task_id}-output.txt"
-    new_task = {
-        "taskId": task_id,
-        "cron": cron,
-        "enabled": True,
-        "prompt": prompt,
-        "outputPath": output_path
-    }
+    new_task = {"taskId": task_id, "cron": cron, "enabled": True, "prompt": prompt, "outputPath": output_path}
     tasks_path = _find_tasks_file()
     tasks = _read_json(tasks_path, [])
     tasks.append(new_task)
     _write_json(tasks_path, tasks)
-    _append_notification({
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "taskId": task_id,
-        "message": f"Task {task_id} created with cron '{cron}'",
-        "ok": True,
-        "outputPath": output_path,
-    })
+    _append_notification({"timestamp": datetime.utcnow().isoformat() + "Z", "taskId": task_id, "message": f"Task {task_id} created", "ok": True})
     return new_task, tasks_path
 
 
@@ -221,7 +228,6 @@ def _extract_embedded_json(text: str):
 
 
 def lambda_handler(event, context):
-    """AWS Lambda handler expected by SAM/API Gateway."""
     body = event.get("body") if isinstance(event, dict) else None
     if isinstance(body, str):
         try:
@@ -235,63 +241,24 @@ def lambda_handler(event, context):
     normalized = prompt.strip()
 
     if "[Task Status]" in normalized:
-        status = _list_tasks()
-        return {
-            "statusCode": 200,
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Headers": "Content-Type"
-            },
-            "body": json.dumps({"ok": True, "status": status}),
-        }
+        return {"statusCode": 200, "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"}, "body": json.dumps({"ok": True, "status": _list_tasks()})}
 
     if "[Task Sceduler]" in normalized or "[Task Scheduler]" in normalized:
         new_task, src = _create_task_from_prompt(prompt)
-        return {
-            "statusCode": 200,
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Headers": "Content-Type"
-            },
-            "body": json.dumps({"ok": True, "message": "Task created", "task": new_task, "tasksFile": src}),
-        }
+        return {"statusCode": 200, "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"}, "body": json.dumps({"ok": True, "message": "Task created", "task": new_task, "tasksFile": src})}
 
-    if "[Run Report]" in normalized:
+    if "[Run Report]" in normalized and execute_report:
         embedded = _extract_embedded_json(prompt)
         payload = embedded if isinstance(embedded, dict) else data
-        report_event = {
-            "reportType": payload.get("reportType"),
-            "input": payload.get("input", {}),
-            "output": payload.get("output", {}),
-            "params": payload.get("params", {}),
-            "taskId": payload.get("taskId", "ui-report")
-        }
+        report_event = {"reportType": payload.get("reportType"), "input": payload.get("input", {}), "output": payload.get("output", {}), "params": payload.get("params", {}), "taskId": payload.get("taskId", "ui-report")}
         result = execute_report(report_event)
-        return {
-            "statusCode": 200,
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Headers": "Content-Type"
-            },
-            "body": json.dumps({"ok": True, "report": result}),
-        }
+        return {"statusCode": 200, "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"}, "body": json.dumps({"ok": True, "report": result})}
 
     result = call_bedrock(prompt)
-    return {
-    print("Starting local dev server at http://0.0.0.0:8000 (POST /chat , POST /presign)")
-    HTTPServer(("0.0.0.0", 8000), DevHandler).serve_forever()
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Content-Type"
-        },
-        "body": json.dumps(result),
-    }
+    return {"statusCode": 200, "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"}, "body": json.dumps(result)}
 
 
-# Minimal local dev server so you can test without SAM
+# Local dev server
 if __name__ == "__main__":
     class DevHandler(BaseHTTPRequestHandler):
         def do_OPTIONS(self):
@@ -302,41 +269,15 @@ if __name__ == "__main__":
             self.end_headers()
 
         def do_POST(self):
-    print("Starting local dev server at http://0.0.0.0:8000 (POST /)")
-    HTTPServer(("0.0.0.0", 8000), DevHandler).serve_forever()
+            length = int(self.headers.get('content-length', 0))
+            body = self.rfile.read(length)
+            event = {"body": body.decode('utf-8')}
             resp = lambda_handler(event, None)
-            self.send_response(resp["statusCode"])
-            for h, v in resp.get("headers", {}).items():
-                self.send_header(h, v)
+            self.send_response(resp['statusCode'])
+            for k, v in resp.get('headers', {}).items():
+                self.send_header(k, v)
             self.end_headers()
-            self.wfile.write(resp["body"].encode("utf-8"))
+            self.wfile.write(resp['body'].encode('utf-8'))
 
-    def _mask(val: str) -> str:
-        if not val:
-            return '<empty>'
-        s = str(val)
-        if len(s) <= 8:
-            return '****'
-        return f"{s[:4]}...{s[-4:]}"
-
-    def _log_effective_config():
-        try:
-            keys = {
-                'AWS_ACCESS_KEY_ID': _cfg('AWS_ACCESS_KEY_ID'),
-                'AWS_SECRET_ACCESS_KEY': _cfg('AWS_SECRET_ACCESS_KEY'),
-                'AWS_SESSION_TOKEN': _cfg('AWS_SESSION_TOKEN'),
-                'AWS_BEARER_TOKEN_BEDROCK': _cfg('AWS_BEARER_TOKEN_BEDROCK'),
-                'AWS_REGION': _cfg('AWS_REGION'),
-                'BEDROCK_MODEL_ID': _cfg('BEDROCK_MODEL_ID'),
-                'BEDROCK_MOCK': _cfg('BEDROCK_MOCK') or _cfg('USE_MOCK_BEDROCK')
-            }
-            logger.info('Effective configuration (values masked):')
-            for k, v in keys.items():
-                logger.info('  %s = %s', k, _mask(v))
-        except Exception as e:
-            logger.warning('Failed to log effective config: %s', e)
-
-    _log_effective_config()
-
-    print("Starting local dev server at http://0.0.0.0:8000 (POST /)")
-    HTTPServer(("0.0.0.0", 8000), DevHandler).serve_forever()
+    logger.info('Starting local dev server at http://0.0.0.0:8000 (POST /)')
+    HTTPServer(('0.0.0.0', 8000), DevHandler).serve_forever()
