@@ -1,15 +1,14 @@
 # AI Accounting Agent (Demo)
-
 Simple demo project with a Python AWS Lambda backend (SAM) and a minimal frontend.
 
 Overview
 
-- `backend/` ¡ª Python Lambda function and a small local dev HTTP server (`backend/handler.py`).
-- `scripts/` ¡ª Dev helpers. Includes `local_scheduler.py` to run cron-like tasks locally.
-- `backend/reports/` ¡ª Pluggable report handlers (`sample_summary.py`, `anomaly_check.py`).
-- `backend/report_executor.py` ¡ª Unified entry to run reports (local/S3 input, local/S3 output).
-- `template.yaml` ¡ª AWS SAM template for deploying the Lambda function.
-- `docs/presentation.md` ¡ª Presentation script to convert into PPT.
+- `backend/` â€” Python Lambda function and a small local dev HTTP server (`backend/handler.py`).
+- `scripts/` â€” Dev helpers. Includes `local_scheduler.py` to run cron-like tasks locally.
+- `backend/reports/` â€” Pluggable report handlers (`sample_summary.py`, `anomaly_check.py`).
+- `backend/report_executor.py` â€” Unified entry to run reports (local/S3 input, local/S3 output).
+- `template.yaml` â€” AWS SAM template for deploying the Lambda function.
+- `docs/presentation.md` â€” Presentation script to convert into PPT.
 
 Local development (Windows)
 
@@ -36,7 +35,7 @@ Windows opens:
 Key features (demo)
 
 - Natural language command
-  - Example: `Éú³É·¢Æ±»ã×Ü`
+  - Example: `ç”Ÿæˆå‘ç¥¨æ±‡æ€»`
 - Scheduled task
   - Example: `[Task Scheduler] cron=*/1 * * * * outputPath=results/quick-task.txt`
 - Run report
@@ -67,9 +66,9 @@ Key features (demo)
 
 Usage
 
-- `[Task Status]` ¡ª list current jobs and tasks.
-- `[Task Scheduler]` ¡ª create a scheduled task via prompt parameters `cron=... outputPath=...`.
-- `[Run Report]` ¡ª run a report; send JSON payload as above or embed the JSON inside the prompt.
+- `[Task Status]` â€” list current jobs and tasks.
+- `[Task Scheduler]` â€” create a scheduled task via prompt parameters `cron=... outputPath=...`.
+- `[Run Report]` â€” run a report; send JSON payload as above or embed the JSON inside the prompt.
 
 Environment
 
@@ -78,6 +77,4 @@ Environment
 
 Cloud migration
 
-- EventBridge/Scheduler triggers Lambda for tasks.
-- Report executor as Lambda/ECS.
-- S3 inputs/outputs; SNS/CloudWatch for notifications.
+This is a demo starter; feel free to open issues or PRs to improve.

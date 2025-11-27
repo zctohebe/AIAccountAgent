@@ -8,169 +8,51 @@ from urllib.parse import quote
 from datetime import datetime
 import uuid
 
-# Ensure repository root on sys.path so 'backend' package is importable when running handler directly
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
-
-try:
-    import requests
-except Exception:
-    requests = None
-
-from backend.report_executor import execute as execute_report
-
-boto3.set_stream_logger('botocore', level='DEBUG')
+# ¥¥Ω®“ª∏ˆ Logger ∂‘œÛ
 logger = logging.getLogger()
+# …Ë÷√»’÷æº∂±Œ™ DEBUG£¨±Ì æº«¬ºÀ˘”–º∂±µƒ»’÷æ£®DEBUG°¢INFO°¢WARNING°¢ERROR°¢CRITICAL£©
 logger.setLevel(logging.DEBUG)
+# ¥¥Ω®“ª∏ˆøÿ÷∆Ã® ‰≥ˆµƒ Handler
 console_handler = logging.StreamHandler()
+# ¥¥Ω®»’÷æ∏Ò Ω∆˜≤¢ÃÌº”µΩ Handler …œ
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 console_handler.setFormatter(formatter)
+# Ω´ Handler ÃÌº”µΩ Logger
 logger.addHandler(console_handler)
 
-config = {}
-try:
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    env_json_path = os.path.join(repo_root, 'env.json')
-    if os.path.exists(env_json_path):
-        with open(env_json_path, 'r', encoding='utf-8') as f:
-            config = json.load(f) or {}
-        logger.info(f'Loaded configuration from {env_json_path}')
-        if isinstance(config, dict) and 'ChatFunction' in config and isinstance(config['ChatFunction'], dict):
-            cf = config['ChatFunction']
-            for k, v in cf.items():
-                if k not in config:
-                    config[k] = v
-except Exception as e:
-    logger.warning('Failed to load env.json: %s', e)
-
-RESULTS_DIR = os.path.join(repo_root, 'results')
-RESOURCES_DIR = os.path.join(repo_root, 'resources')
-TASKS_PATH = os.path.join(repo_root, 'tasks.json')
-TASKS_FALLBACK_PATH = os.path.join(RESOURCES_DIR, 'tasks.json')
-SCHEDULER_STATE_PATH = os.path.join(RESOURCES_DIR, 'scheduler_state.json')
-NOTIFICATIONS_PATH = os.path.join(RESOURCES_DIR, 'notifications.json')
-
-
-def _ensure_parent_dir(path: str):
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-    except Exception:
-        pass
-
-
-def _find_tasks_path() -> str:
-    return TASKS_PATH if os.path.exists(TASKS_PATH) else TASKS_FALLBACK_PATH
-
-
-def _cfg(key, default=''):
-    if isinstance(config, dict) and key in config:
-        return config.get(key)
-    return os.environ.get(key, default)
-
-
-def _bool_cfg(key, default=False):
-    val = _cfg(key, None)
-    if val is None:
-        return default
-    if isinstance(val, bool):
-        return val
-    if isinstance(val, str):
-        return val.lower() in ('1', 'true', 'yes', 'on')
-    try:
-        return bool(int(val))
-    except Exception:
-        return default
-
-aws_access_key_id = _cfg('AWS_ACCESS_KEY_ID') or ''
-aws_secret_access_key = _cfg('AWS_SECRET_ACCESS_KEY') or ''
-aws_session_token = _cfg('AWS_SESSION_TOKEN') or ''
-region_name = _cfg('AWS_REGION') or 'us-east-1'
-
-if isinstance(region_name, str) and region_name.strip().lower() in ('global', 'none', 'default'):
-    logger.warning("AWS_REGION is set to '%s' ‚Äî mapping to 'us-east-1' for Bedrock calls", region_name)
-    region_name = 'us-east-1'
-
-
-def _extract_bearer_token(raw: str) -> str:
-    if not raw:
-        return ''
-    token = raw.strip()
-    if token.startswith('AWS_BEARER_TOKEN_BEDROCK='):
-        token = token.split('=', 1)[1]
-    if token.lower().startswith('bearer '):
-        token = token.split(' ', 1)[1]
-    return token.strip()
-
-
-def _invoke_with_bearer(model_id: str, payload: dict, token: str):
-    if not requests:
-        msg = "requests library not available. Install with: pip install requests"
-        logger.error(msg)
-        return {"ok": False, "error": msg, "model_response": "(mock) echo: " + payload.get("messages", [{}])[-1].get("content", "")}
-
-    token = _extract_bearer_token(token)
-    if not token:
-        msg = "Empty bearer token"
-        logger.error(msg)
-        return {"ok": False, "error": msg, "model_response": "(mock) echo: " + payload.get("messages", [{}])[-1].get("content", "")}
-
-    encoded_model = quote(model_id, safe='')
-    url = f"https://bedrock-runtime.{region_name}.amazonaws.com/model/{encoded_model}/invoke"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {token}",
-    }
-    logger.info("Invoking Bedrock via HTTP Bearer at %s", url)
-    try:
-        resp = requests.post(url, data=json.dumps(payload), headers=headers, timeout=60)
-        try:
-            resp.raise_for_status()
-        except requests.HTTPError as he:
-            body = resp.text
-            logger.error("HTTP Bearrock returned %s: %s", resp.status_code, body)
-            try:
-                logger.debug('Response headers: %s', dict(resp.headers))
-            except Exception:
-                pass
-            return {"ok": False, "error": f"HTTP {resp.status_code}: {he}", "model_response": body, "response_headers": dict(resp.headers)}
-
-        try:
-            body_json = resp.json()
-            logger.debug('Response headers: %s', dict(resp.headers))
-            return {"ok": True, "model_response": body_json, "response_headers": dict(resp.headers)}
-        except Exception:
-            logger.debug('Response headers: %s', dict(resp.headers))
-            return {"ok": True, "model_response": resp.text, "response_headers": dict(resp.headers)}
-    except Exception as e:
-        logger.exception("HTTP Bearer Bedrock invocation failed")
-        return {"ok": False, "error": str(e), "model_response": "(mock) echo: " + payload.get("messages", [{}])[-1].get("content", "")}
-
+#model_id = "deepseek-chat:1.0" #deepseek-chat:1.0 ,deepseek.r1-v1:0
+aws_access_key_id=''
+aws_secret_access_key=''
+region_name = 'us-east-1'
 
 def call_bedrock(prompt: str):
-    model_id = _cfg('BEDROCK_MODEL_ID') or os.environ.get("BEDROCK_MODEL_ID", "deepseek-chat:1.0")
-
-    if _bool_cfg('BEDROCK_MOCK') or _bool_cfg('USE_MOCK_BEDROCK') or os.environ.get('BEDROCK_MOCK') == '1':
-        logger.info('Mock mode enabled via configuration; returning mock response without calling AWS')
-        return {"ok": False, "model_response": f"(mock) echo: {prompt}"}
+    """Invoke Bedrock model. This function uses a best-effort boto3 client name and returns a safe mock on error.
+    Replace the invocation details with the exact Bedrock SDK call for your environment.
+    """
+    model_id = os.environ.get("BEDROCK_MODEL_ID", "deepseek-chat:1.0")
+    try:
+            client = boto3.client(service_name='bedrock-runtime',aws_access_key_id=aws_access_key_id,aws_secret_access_key=aws_secret_access_key,region_name=region_name)
+            logger.info("Created Bedrock runtime client")
+    except Exception:
+        try:
+            client = boto3.client("bedrock")
+            logger.info("Created Bedrock client")
+        except Exception:
+            client = None
+            logger.info("Did not Created Bedrock client")
 
     payload = {
-        "messages": [
-            {
-                "role": "‰Ω†ÊòØ‰∏Ä‰∏™AI‰ºöËÆ°Âä©Êâã",
-                "content": prompt
-            }
-        ],
-        "temperature": 0.5,
-        "top_p": 0.9,
-        "max_tokens": 500
-    }
-
-    bearer_raw = _cfg('AWS_BEARER_TOKEN_BEDROCK') or os.environ.get('AWS_BEARER_TOKEN_BEDROCK', '')
-    bearer_token = _extract_bearer_token(bearer_raw)
-    if bearer_token:
-        logger.info("Detected AWS_BEARER_TOKEN_BEDROCK ‚Äî using HTTP Bearer invocation")
-        return _invoke_with_bearer(model_id, payload, bearer_token)
+            "messages": [
+                {
+                    "role": "ƒ„ «“ª∏ˆAIª·º∆÷˙ ÷",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.5,
+            "top_p": 0.9,
+            "max_tokens": 500
+        }
+    
 
     client = None
     try:
@@ -195,25 +77,56 @@ def call_bedrock(prompt: str):
             client = None
             logger.warning('Could not create any Bedrock client: %s', e2)
 
-    if client is None:
-        logger.warning("No Bedrock client available; returning mock response")
+
+        #resp = client.invoke_model(modelId=model_id,body='{"input_data": "ÁîüÊàê‰∏ÄÊÆµÂÖ≥‰∫éÊú™Êù•ÁßëÊäÄÁöÑÁü≠Êñá„Ä?}')
+        output = resp['body'].read().decode('utf-8')
+        print("Ê®°ÂûãËæìÂá∫Ôº?, output)
+        body = None
+
+
+    # Response shapes differ; try to extract text safely.
+
         return {"ok": False, "model_response": f"(mock) echo: {prompt}"}
 
     try:
+        # NOTE: Replace this call with the correct Bedrock runtime invocation for your SDK version.
+
         resp = client.invoke_model(modelId=model_id, contentType="application/json", body=json.dumps(payload))
         output = resp['body'].read().decode('utf-8')
-        print("Ê®°ÂûãËæìÂá∫Ôºö", output)
+        print("Ê®°ÂûãËæìÂá∫Ôº?, output)
         body = None
         if isinstance(resp, dict):
             body = resp.get("body") or resp.get("Body") or resp
         else:
             body = resp
+
         try:
             if isinstance(body, (bytes, bytearray)):
                 text = body.decode("utf-8")
             else:
-                text = json.dumps(body)
-        except Exception:
+        return {"ok": False, "error": str(e), "model_response": f"(mock) echo: {prompt}"}
+                try:
+                    parsed = json.loads(json.dumps(body))
+                    # try common response shapes
+    # Prefer explicit path-based routing if provided by API Gateway
+    if path and path.endswith("/presign"):
+        result = handle_presign_request(data)
+    else:
+        # Allow clients to request presign via action in payload
+        if isinstance(data, dict) and data.get("action") == "presign":
+            result = handle_presign_request(data)
+        else:
+            result = handle_chat_request(data)
+                            text = json.dumps(parsed['output'])
+                        elif parsed.get('content'):
+                            text = json.dumps(parsed['content'])
+                        else:
+        return {"ok": False, "error": str(e), "model_response": f"(mock) echo: {prompt}"}
+                    else:
+                        text = str(parsed)
+                except Exception:
+    prompt = data.get("prompt", "Hello from AI Accounting Agent")
+    result = call_bedrock(prompt)
             text = str(body)
         return {"ok": True, "model_response": text}
     except Exception as e:
@@ -308,6 +221,7 @@ def _extract_embedded_json(text: str):
 
 
 def lambda_handler(event, context):
+    """AWS Lambda handler expected by SAM/API Gateway."""
     body = event.get("body") if isinstance(event, dict) else None
     if isinstance(body, str):
         try:
@@ -367,8 +281,8 @@ def lambda_handler(event, context):
 
     result = call_bedrock(prompt)
     return {
-        "statusCode": 200,
-        "headers": {
+    print("Starting local dev server at http://0.0.0.0:8000 (POST /chat , POST /presign)")
+    HTTPServer(("0.0.0.0", 8000), DevHandler).serve_forever()
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "Content-Type"
@@ -377,6 +291,7 @@ def lambda_handler(event, context):
     }
 
 
+# Minimal local dev server so you can test without SAM
 if __name__ == "__main__":
     class DevHandler(BaseHTTPRequestHandler):
         def do_OPTIONS(self):
@@ -387,9 +302,8 @@ if __name__ == "__main__":
             self.end_headers()
 
         def do_POST(self):
-            length = int(self.headers.get("content-length", 0))
-            body = self.rfile.read(length)
-            event = {"body": body.decode("utf-8")}
+    print("Starting local dev server at http://0.0.0.0:8000 (POST /)")
+    HTTPServer(("0.0.0.0", 8000), DevHandler).serve_forever()
             resp = lambda_handler(event, None)
             self.send_response(resp["statusCode"])
             for h, v in resp.get("headers", {}).items():
