@@ -5,12 +5,15 @@ Simple demo project with a Python AWS Lambda backend (SAM) and a minimal fronten
 Overview
 
 - `backend/` — Python Lambda function and a small local dev HTTP server (`backend/handler.py`).
-- `frontend/` — Static single-page UI (`index.html`, `app.js`, `styles.css`).
+- `scripts/` — Dev helpers. Includes `local_scheduler.py` to run cron-like tasks locally.
+- `backend/reports/` — Pluggable report handlers (`sample_summary.py`, `anomaly_check.py`).
+- `backend/report_executor.py` — Unified entry to run reports (local/S3 input, local/S3 output).
 - `template.yaml` — AWS SAM template for deploying the Lambda function.
+- `docs/presentation.md` — Presentation script to convert into PPT.
 
 Local development (Windows)
 
-We provide a single Windows starter script to launch backend and frontend for development.
+Use a single starter script to launch backend, frontend, and scheduler.
 
 Prerequisites
 
@@ -21,32 +24,60 @@ Start everything
 
 From repository root run:
 
-```powershell
-.\scripts\start_all.ps1
+```cmd
+.\scripts\start_all.bat
 ```
 
-This opens two PowerShell windows: one for the backend (runs `backend/handler.py`) and one for the frontend (serves `frontend/` on port 8080). The frontend is available at `http://localhost:8080` and the backend at `http://localhost:8000`.
+Windows opens:
+- Backend: `http://localhost:8000` (runs `backend/handler.py`).
+- Frontend: serves `frontend/` on port 8080 (if folder exists).
+- Scheduler: `scripts/local_scheduler.py`.
+
+Key features (demo)
+
+- Natural language command
+  - Example: `生成发票汇总`
+- Scheduled task
+  - Example: `[Task Scheduler] cron=*/1 * * * * outputPath=results/quick-task.txt`
+- Run report
+  - Example 1 (summary):
+```
+{
+  "prompt": "[Run Report]",
+  "reportType": "sample-summary",
+  "input": { "source": "local", "format": "jsonl", "path": "resources/sample-data.jsonl" },
+  "output": { "target": "local", "path": "results/sample-summary-output.json" },
+  "params": {}
+}
+```
+  - Example 2 (anomaly):
+```
+{
+  "prompt": "[Run Report]",
+  "reportType": "anomaly-check",
+  "input": { "source": "local", "format": "jsonl", "path": "resources/sample-data.jsonl" },
+  "output": { "target": "local", "path": "results/anomaly-check-output.json" },
+  "params": {}
+}
+```
+- Multi-source data
+  - Local JSON/JSONL; switchable to S3 via `source: "s3"` and `path: "s3://bucket/key"`
+- Automatic result storage
+  - Outputs in `results/*.json` and `results/*.txt`, notifications in `resources/notifications.json`
+
+Usage
+
+- `[Task Status]` — list current jobs and tasks.
+- `[Task Scheduler]` — create a scheduled task via prompt parameters `cron=... outputPath=...`.
+- `[Run Report]` — run a report; send JSON payload as above or embed the JSON inside the prompt.
 
 Environment
 
-- Edit `env.json` in repository root to provide `BEDROCK_MODEL_ID`, `UPLOAD_BUCKET`, and `AWS_REGION` for local testing with real AWS resources.
+- Edit `env.json` for AWS/BEDROCK settings.
+- To mock Bedrock: set `"BEDROCK_MOCK": "1"` or `"USE_MOCK_BEDROCK": "true"`.
 
-S3 upload / presign flow (local dev)
+Cloud migration
 
-- The frontend requests a presigned POST from `POST /presign` with JSON `{ "filename": "...", "content_type": "..." }`.
-- The backend returns presigned fields and URL. Frontend uploads directly to S3 with a form POST.
-- For local development, if no `UPLOAD_BUCKET` environment variable is set, the backend returns a mock presign response and the file upload step will be skipped.
-
-Deploy to AWS
-
-- The SAM template expects an `UploadBucketName` parameter. Create an S3 bucket and deploy with:
-
-```bash
-sam build
-sam deploy --guided
-# Provide BedrockModelId and UploadBucketName when prompted
-```
-
-Contributing
-
-This is a demo starter; feel free to open issues or PRs to improve.
+- EventBridge/Scheduler triggers Lambda for tasks.
+- Report executor as Lambda/ECS.
+- S3 inputs/outputs; SNS/CloudWatch for notifications.

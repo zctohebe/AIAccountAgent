@@ -1,0 +1,23 @@
+[
+  {
+    "taskId": "task-20251127191818-74f286",
+    "cron": "*/1 * * * *",
+    "enabled": true,
+    "prompt": "[Task Scheduler] Notify me one minute later",
+    "outputPath": "results/task-20251127191818-74f286-output.txt"
+  },
+  {
+    "taskId": "task-20251127192018-fa8baa",
+    "cron": "*/1 * * * *",
+    "enabled": true,
+    "prompt": "[Task Scheduler] Notify me one minute later",
+    "outputPath": "results/task-20251127192018-fa8baa-output.txt"
+  },
+  {
+    "taskId": "task-20251127192123-96b59e",
+    "cron": "*/1 * * * *",
+    "enabled": true,
+    "prompt": "[Task Scheduler] Notify me two minute later then remove this task",
+    "outputPath": "results/task-20251127192123-96b59e-output.txt"
+  }
+]

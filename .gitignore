@@ -2,3 +2,62 @@
 __pycache__/
 /.aws-sam
 node_modules/
+
+# Visual Studio / VSCode
+.vs/
+.vscode/
+.idea/
+*.code-workspace
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+
+# Virtual envs
+backend/.venv/
+.venv/
+venv/
+ENV/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and local runtime artifacts
+resources/notifications.json
+resources/scheduler_state.json
+logs/
+
+# Build / package outputs
+.dist/
+build/
+dist/
+
+# AWS SAM / Local
+.aws-sam/
+
+# Node / frontend
+node_modules/
+
+# Results (generated artifacts)
+results/
+
+# Environment files
+.env
+.env.local
+
+# Temporary files
+*.tmp
+*.bak
+~$*
+
+# Python tooling
+.mypy_cache/
+.pytest_cache/
+.tox/
+.coverage
+coverage.xml
