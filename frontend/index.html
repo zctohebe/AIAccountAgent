@@ -43,7 +43,7 @@
       // Ensure frontend calls the backend dev server at localhost:8000
       // Change this if your backend runs at a different host/port
       window.__API_BASE__ = 'http://localhost:8000';
-      location.reload();
+      // NOTE: removed unconditional location.reload() which caused infinite reload loop
     </script>
     <script src="./app.js"></script>
   </body>
