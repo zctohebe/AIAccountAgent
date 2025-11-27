@@ -8,16 +8,16 @@ from urllib.parse import quote
 from datetime import datetime
 import uuid
 
-# ´´½¨Ò»¸ö Logger ¶ÔÏó
+# ï¿½ï¿½ï¿½ï¿½Ò»ï¿½ï¿½ Logger ï¿½ï¿½ï¿½ï¿½
 logger = logging.getLogger()
-# ÉèÖÃÈÕÖ¾¼¶±ğÎª DEBUG£¬±íÊ¾¼ÇÂ¼ËùÓĞ¼¶±ğµÄÈÕÖ¾£¨DEBUG¡¢INFO¡¢WARNING¡¢ERROR¡¢CRITICAL£©
+# ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¾ï¿½ï¿½ï¿½ï¿½Îª DEBUGï¿½ï¿½ï¿½ï¿½Ê¾ï¿½ï¿½Â¼ï¿½ï¿½ï¿½Ğ¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¾ï¿½ï¿½DEBUGï¿½ï¿½INFOï¿½ï¿½WARNINGï¿½ï¿½ERRORï¿½ï¿½CRITICALï¿½ï¿½
 logger.setLevel(logging.DEBUG)
-# ´´½¨Ò»¸ö¿ØÖÆÌ¨Êä³öµÄ Handler
+# ï¿½ï¿½ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ì¨ï¿½ï¿½ï¿½ï¿½ï¿½ Handler
 console_handler = logging.StreamHandler()
-# ´´½¨ÈÕÖ¾¸ñÊ½Æ÷²¢Ìí¼Óµ½ Handler ÉÏ
+# ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¾ï¿½ï¿½Ê½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Óµï¿½ Handler ï¿½ï¿½
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 console_handler.setFormatter(formatter)
-# ½« Handler Ìí¼Óµ½ Logger
+# ï¿½ï¿½ Handler ï¿½ï¿½Óµï¿½ Logger
 logger.addHandler(console_handler)
 
 #model_id = "deepseek-chat:1.0" #deepseek-chat:1.0 ,deepseek.r1-v1:0
@@ -44,7 +44,7 @@ def call_bedrock(prompt: str):
     payload = {
             "messages": [
                 {
-                    "role": "ÄãÊÇÒ»¸öAI»á¼ÆÖúÊÖ",
+                    "role": "ï¿½ï¿½ï¿½ï¿½Ò»ï¿½ï¿½AIï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½",
                     "content": prompt
                 }
             ],
@@ -78,9 +78,9 @@ def call_bedrock(prompt: str):
             logger.warning('Could not create any Bedrock client: %s', e2)
 
 
-        #resp = client.invoke_model(modelId=model_id,body='{"input_data": "ç”Ÿæˆä¸€æ®µå…³äºæœªæ¥ç§‘æŠ€çš„çŸ­æ–‡ã€?}')
+        #resp = client.invoke_model(modelId=model_id,body='{"input_data": "ç”Ÿæˆä¸€æ®µå…³äºæœªæ¥ç§‘æŠ€çš„çŸ­æ–‡ï¿½?}')
         output = resp['body'].read().decode('utf-8')
-        print("æ¨¡å‹è¾“å‡ºï¼?, output)
+        print("æ¨¡å‹è¾“å‡ºï¿½?, output)
         body = None
 
 
@@ -93,7 +93,7 @@ def call_bedrock(prompt: str):
 
         resp = client.invoke_model(modelId=model_id, contentType="application/json", body=json.dumps(payload))
         output = resp['body'].read().decode('utf-8')
-        print("æ¨¡å‹è¾“å‡ºï¼?, output)
+        print("æ¨¡å‹è¾“å‡ºï¿½?, output)
         body = None
         if isinstance(resp, dict):
             body = resp.get("body") or resp.get("Body") or resp
