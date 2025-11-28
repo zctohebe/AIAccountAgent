@@ -3,47 +3,194 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AI Accounting Agent — Demo</title>
-    <link rel="stylesheet" href="./styles.css">
+    <title>AI Accounting Agent — React Demo</title>
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" crossorigin="anonymous">
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- React (CDN) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- React Bootstrap UMD -->
+    <script src="https://unpkg.com/react-bootstrap@2.10.2/dist/react-bootstrap.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+      body{background:#0f172a;color:#e5e7eb;font-family:system-ui,Segoe UI,Roboto}
+      .navbar-brand{font-weight:600;color:#fff}
+      .bg-dark-gradient{background:linear-gradient(90deg,#1e293b,#0f172a)}
+      .feature-card h5{font-size:1rem;font-weight:600;color:#fff}
+      .feature-card p{color:#e5e7eb}
+      .messages-pane{height:420px;overflow:auto;background:#121c2c;border:1px solid #1f2937;border-radius:.5rem;padding:.75rem}
+      .message-item{margin-bottom:.75rem}
+      .message-role{font-size:.75rem;letter-spacing:.05em;text-transform:uppercase;color:#ffffff}
+      .message-bubble{white-space:pre-wrap;background:#1e293b;color:#ffffff;padding:.5rem .75rem;border-radius:.5rem;font-size:.9rem}
+      .message-item.agent .message-bubble{background:#243554}
+      code.inline{background:#1e293b;padding:.2em .4em;border-radius:.3em;font-size:.85em;color:#fff}
+      .markdown-body code{background:#1e293b;padding:.15em .35em;border-radius:.3em;color:#fff}
+      .markdown-body pre code{background:transparent;padding:0;color:#fff}
+      .sidebar-card{background:#121c2c;border:1px solid #1f2937}
+      .sidebar-card .card-header, .sidebar-card .card-body{color:#fff}
+      .footer-bar{font-size:.8rem;color:#e5e7eb;padding:.75rem 0;text-align:center}
+      .upload-hint{font-size:.8rem;color:#e5e7eb}
+      textarea.form-control{background:#121c2c;color:#ffffff;border:1px solid #1f2937}
+      textarea.form-control:focus{background:#121c2c;color:#ffffff}
+      .prompt-label{color:#ffffff}
+      .examples-list code{color:#fff}
+      .attachments{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem}
+      .attachment-item{display:flex;align-items:center;gap:.35rem;background:#1e293b;color:#fff;border:1px solid #334155;border-radius:.5rem;padding:.25rem .5rem;font-size:.85rem}
+      .attachment-remove{cursor:pointer;color:#fca5a5}
+    </style>
   </head>
   <body>
-    <div class="app">
-      <header class="header">
-        <h1>AI Accounting Agent</h1>
-        <p class="sub">Upload invoices, ask questions, and get suggested journal entries.</p>
-      </header>
+    <div id="root"></div>
+    <script>window.__API_BASE__='http://localhost:8000';</script>
+    <script type="text/babel">
+      const {useState,useEffect,useRef,useCallback} = React;
+      const {Navbar,Container,Row,Col,Card,Button,Form,InputGroup,Badge,Spinner,ListGroup} = ReactBootstrap;
+      const API_BASE = window.__API_BASE__ || '';
 
-      <main class="main">
-        <section class="chat-section">
-          <div id="messages" class="messages" aria-live="polite"></div>
-          <div class="input-row">
-            <input id="fileInput" type="file" />
-            <textarea id="prompt" placeholder="Type a question or describe the invoice..."></textarea>
-            <div class="controls">
-              <button id="sendBtn" class="primary">Send</button>
-              <button id="clearBtn" class="secondary">Clear</button>
-            </div>
+      const FEATURE_DEMOS = [
+        {title:'Natural Language',desc:'Perform complex accounting tasks via simple commands',fill:'Generate invoice summary'},
+        {title:'Task Scheduler',desc:'Create cron based tasks',fill:'[Task Scheduler] cron=*/1 * * * * outputPath=results/quick-task.txt'},
+        {title:'Report Processing',desc:'Pluggable handlers local/S3',fill:'Run Sample Summary Report { "prompt": "[Run Report]", "reportType": "sample-summary", "input": { "source": "local", "format": "jsonl", "path": "resources/sample-data.jsonl" }, "output": { "target": "local", "path": "results/sample-summary-output.json" }, "params": {} }'},
+        {title:'Task Status',desc:'View current jobs and tasks',fill:'[Task Status]'},
+      ];
+
+      function Message({m}) {
+        return (
+          <div className={"message-item "+(m.role==='Agent'?'agent':'user')}> 
+            <div className="message-role">{m.role}</div>
+            <div className="message-bubble markdown-body" dangerouslySetInnerHTML={{__html: m.markdown? marked.parse(m.content) : m.content}} />
           </div>
-        </section>
+        );
+      }
 
-        <aside class="sidebar">
-          <h3>Tips</h3>
-          <ul>
-            <li>Try: "Generate accounting entry for a $1200 vendor invoice dated 2025-11-01"</li>
-            <li>Upload a PDF or image (Textract integration later)</li>
-            <li>Responses include suggested debits/credits and explanation</li>
-          </ul>
-        </aside>
-      </main>
+      function App(){
+        const [messages,setMessages]=useState([]);
+        const [prompt,setPrompt]=useState('');
+        const [sending,setSending]=useState(false);
+        const [uploading,setUploading]=useState(false);
+        const [attachments,setAttachments]=useState([]); // {name,path}
+        const fileRef=useRef(null);
+        const msgEndRef=useRef(null);
 
-      <footer class="footer">Powered by Bedrock (demo) • Logs are not persisted in this starter</footer>
-    </div>
+        useEffect(()=>{ if(msgEndRef.current) msgEndRef.current.scrollIntoView({behavior:'smooth'}); },[messages]);
 
-    <script>
-      // Ensure frontend calls the backend dev server at localhost:8000
-      // Change this if your backend runs at a different host/port
-      window.__API_BASE__ = 'http://localhost:8000';
+        const append=(role,content,markdown=false)=> setMessages(ms=>[...ms,{role,content,markdown}]);
+
+        const handleSend = useCallback(async () => {
+          const text=prompt.trim(); if(!text||sending) return; setSending(true); append('You',text,false); setPrompt('');
+          try{
+            const res=await fetch(API_BASE+'/',{
+              method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({prompt:text, attachments})
+            });
+            const data=await res.json();
+            // Prefer markdown from backend, otherwise show raw
+            const md=data.markdown || (data.model_response? String(data.model_response) : JSON.stringify(data));
+            append('Agent', md, true);
+          }catch(e){ append('Agent','Request failed: '+e.message,false);} finally{ setSending(false);} },[prompt,sending,attachments]);
+
+        const handleKeyDown=(e)=>{ if((e.key==='Enter'||e.keyCode===13)&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.isComposing){ e.preventDefault(); handleSend(); }};
+
+        const handleUpload= async()=>{
+          if(!fileRef.current||!fileRef.current.files.length) return; const f=fileRef.current.files[0]; setUploading(true);
+          try{
+            const buf=await f.arrayBuffer(); const b64=btoa(String.fromCharCode(...new Uint8Array(buf)));
+            const resp=await fetch(API_BASE+'/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:f.name,contentBase64:b64})});
+            const data=await resp.json();
+            const savedPath = data.path || '';
+            const att = { name: f.name, path: savedPath };
+            setAttachments(list => [...list, att]);
+            append('Agent', `Attachment added: \`${f.name}\``, true);
+          }catch(e){ append('Agent','Upload failed: '+e.message,false);} finally{ setUploading(false); if(fileRef.current) fileRef.current.value=''; }
+        };
+
+        const removeAttachment = (idx) => {
+          setAttachments(list => list.filter((_,i)=>i!==idx));
+        };
+
+        return (
+          <>
+            <Navbar expand="lg" className="bg-dark-gradient" variant="dark">
+              <Container>
+                <Navbar.Brand>AI Accounting Agent</Navbar.Brand>
+                <Badge bg="secondary">Demo</Badge>
+              </Container>
+            </Navbar>
+            <Container className="mt-4">
+              <Row className="g-3">
+                <Col xs={12}>
+                  <Row className="g-3">
+                    {FEATURE_DEMOS.map(f=> (
+                      <Col key={f.title} md={3} sm={6} xs={12}>
+                        <Card className="feature-card h-100" style={{background:'#121826', border:'1px solid #1f2937'}}>
+                          <Card.Body>
+                            <Card.Title as="h5">{f.title}</Card.Title>
+                            <Card.Text style={{fontSize:'0.9rem'}}>{f.desc}</Card.Text>
+                            <Button size="sm" variant="outline-info" onClick={()=>setPrompt(f.fill)}>Example</Button>
+                          </Card.Body>
+                        </Card>
+                      </Col>
+                    ))}
+                  </Row>
+                </Col>
+                <Col lg={8} md={7}>
+                  <Card className="mb-3" style={{background:'#121c2c',border:'1px solid #1f2937'}}>
+                    <Card.Header style={{background:'#1e293b', color:'#fff'}}>Interaction</Card.Header>
+                    <Card.Body>
+                      <div className="messages-pane">
+                        {messages.map((m,i)=><Message key={i} m={m} />)}
+                        <div ref={msgEndRef} />
+                      </div>
+                      <Form className="mt-3">
+                        <Form.Group>
+                          <Form.Label className="prompt-label">Prompt</Form.Label>
+                          <Form.Control as="textarea" rows={3} value={prompt} placeholder="Type command, Enter to send (Shift+Enter newline)" onChange={e=>setPrompt(e.target.value)} onKeyDown={handleKeyDown} />
+                        </Form.Group>
+                        <div className="mt-2 d-flex align-items-center gap-2">
+                          <input type="file" ref={fileRef} style={{display:'none'}} onChange={()=>{ /* no-op */ }} />
+                          <Button size="sm" title="Upload" variant="outline-secondary" onClick={()=>fileRef.current && fileRef.current.click()}>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9V13a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V9.9h-1V13a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V9.9h-1z"/><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3.5 3.5a.5.5 0 1 1-.708.708L8.5 2.707V10.5a.5.5 0 0 1-1 0V2.707L4.854 5.354a.5.5 0 1 1-.708-.708l3.5-3.5z"/></svg>
+                          </Button>
+                          <Button size="sm" variant="outline-info" onClick={handleUpload} disabled={uploading}>{uploading? <Spinner size="sm" animation="border" />: 'Attach'}</Button>
+                          <Button id="sendBtn" onClick={handleSend} disabled={sending} variant="success">{sending? 'Sending...':'Send'}</Button>
+                          <Button id="clearBtn" variant="outline-light" onClick={()=>setMessages([])}>Clear</Button>
+                        </div>
+                        {attachments.length>0 && (
+                          <div className="attachments">
+                            {attachments.map((a,idx)=> (
+                              <div key={idx} className="attachment-item">
+                                <span title={a.path}>{a.name}</span>
+                                <span className="attachment-remove" onClick={()=>removeAttachment(idx)}>&times;</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </Form>
+                    </Card.Body>
+                  </Card>
+                </Col>
+                <Col lg={4} md={5}>
+                  <Card className="sidebar-card">
+                    <Card.Header style={{background:'#1e293b', color:'#fff'}}>Examples</Card.Header>
+                    <Card.Body className="examples-list" style={{fontSize:'0.9rem'}}>
+                      <ListGroup variant="flush">
+                        <ListGroup.Item style={{background:'transparent',color:'#e5e7eb'}}><code class="inline">[Task Status]</code> list tasks</ListGroup.Item>
+                        <ListGroup.Item style={{background:'transparent',color:'#e5e7eb'}}><code class="inline">[Task Scheduler] cron=*/1 * * * * outputPath=results/quick-task.txt</code> create task</ListGroup.Item>
+                        <ListGroup.Item style={{background:'transparent',color:'#e5e7eb'}}><code class="inline">[Run Report]</code> + JSON payload</ListGroup.Item>
+                      </ListGroup>
+                    </Card.Body>
+                  </Card>
+                </Col>
+              </Row>
+              <div class="footer-bar">Local Bedrock mock supported · Outputs stored in results/ & UserStorage/</div>
+            </Container>
+          </>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById('root')).render(<App />);
     </script>
-    <script src="./app.js"></script>
   </body>
 </html>

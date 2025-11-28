@@ -7,6 +7,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime
 import uuid
 from urllib.parse import quote
+import base64
+import re
 
 # Ensure repository root on sys.path for imports when running directly
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -25,7 +27,7 @@ try:
 except Exception:
     execute_report = None
 
-# Logger setup (clean, no garbled text)
+# Logger setup
 logger = logging.getLogger("handler")
 logger.setLevel(logging.DEBUG)
 if not logger.handlers:
@@ -72,6 +74,7 @@ BEDROCK_MODEL_ID = _cfg('BEDROCK_MODEL_ID') or 'deepseek-chat:1.0'
 
 RESULTS_DIR = os.path.join(REPO_ROOT, 'results')
 RESOURCES_DIR = os.path.join(REPO_ROOT, 'resources')
+USER_STORAGE_DIR = os.path.join(REPO_ROOT, 'UserStorage')
 TASKS_PATH = os.path.join(REPO_ROOT, 'tasks.json')
 TASKS_FALLBACK_PATH = os.path.join(RESOURCES_DIR, 'tasks.json')
 SCHEDULER_STATE_PATH = os.path.join(RESOURCES_DIR, 'scheduler_state.json')
@@ -196,6 +199,59 @@ def _list_tasks():
     return {"jobs": jobs, "tasks": tasks, "source": tasks_path}
 
 
+def _cron_humanize(expr: str) -> str:
+    expr = (expr or '').strip()
+    if expr in ('* * * * *', '*/1 * * * *'):
+        return 'Every minute (UTC)'
+    if expr == '0 * * * *':
+        return 'At minute 0 of every hour (UTC)'
+    m = re.match(r'^(\d{1,2}) (\d{1,2}) \* \* \*$', expr)
+    if m:
+        minute, hour = int(m.group(1)), int(m.group(2))
+        return f'At {hour:02d}:{minute:02d} every day (UTC)'
+    m2 = re.match(r'^(\d{1,2}) (\d{1,2}) \* \* (\d)$', expr)
+    if m2:
+        minute, hour, dow = int(m2.group(1)), int(m2.group(2)), int(m2.group(3))
+        days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+        day = days[dow] if 0 <= dow <= 6 else f'day {dow}'
+        return f'At {hour:02d}:{minute:02d} every {day} (UTC)'
+    if re.match(r'^\*/\d+ \* \* \* \*$', expr):
+        n = int(expr.split()[0].split('/')[1])
+        return f'Every {n} minute(s) (UTC)'
+    if re.match(r'^\d{1,2} \*/\d+ \* \* \*$', expr):
+        parts = expr.split()
+        minute = parts[0]
+        hours = int(parts[1].split('/')[1])
+        return f'At minute {minute} every {hours} hour(s) (UTC)'
+    return f'Cron: `{expr}` (UTC)'
+
+
+def _format_task_status_md(status: dict) -> str:
+    lines = ["## Scheduled Tasks Status", ""]
+    jobs = status.get('jobs', {})
+    tasks = status.get('tasks', [])
+    if jobs:
+        lines.append("### Active Jobs")
+        for tid, meta in jobs.items():
+            cron_expr = meta.get('cron', '')
+            human = _cron_humanize(cron_expr)
+            lines.append(f"- ID: `{tid}` — {human}")
+        lines.append("")
+    else:
+        lines.append("- No scheduled jobs found.")
+        lines.append("")
+    if tasks:
+        lines.append("### Tasks File Entries (first 10)")
+        for t in tasks[:10]:
+            tid = t.get('taskId')
+            cron_expr = t.get('cron') or ''
+            human = _cron_humanize(cron_expr)
+            prompt = (t.get('prompt') or '').strip().replace('\n', ' ')
+            lines.append(f"- ID: `{tid}`\n  - Trigger: {human}\n  - Prompt: {prompt}\n  - Output: `{t.get('outputPath','')}`")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _create_task_from_prompt(prompt: str):
     cron = "*/1 * * * *"
     output_path = None
@@ -241,21 +297,27 @@ def lambda_handler(event, context):
     normalized = prompt.strip()
 
     if "[Task Status]" in normalized:
-        return {"statusCode": 200, "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"}, "body": json.dumps({"ok": True, "status": _list_tasks()})}
+        status = _list_tasks()
+        md = _format_task_status_md(status)
+        return {"statusCode": 200, "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"}, "body": json.dumps({"ok": True, "status": status, "markdown": md})}
 
     if "[Task Sceduler]" in normalized or "[Task Scheduler]" in normalized:
         new_task, src = _create_task_from_prompt(prompt)
-        return {"statusCode": 200, "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"}, "body": json.dumps({"ok": True, "message": "Task created", "task": new_task, "tasksFile": src})}
+        md = f"## Task Created\n\n- ID: `{new_task['taskId']}`\n- Cron: `{new_task['cron']}`\n- Output: `{new_task['outputPath']}`\n- Tasks file: `{src}`\n"
+        return {"statusCode": 200, "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"}, "body": json.dumps({"ok": True, "message": "Task created", "task": new_task, "tasksFile": src, "markdown": md})}
 
     if "[Run Report]" in normalized and execute_report:
         embedded = _extract_embedded_json(prompt)
         payload = embedded if isinstance(embedded, dict) else data
         report_event = {"reportType": payload.get("reportType"), "input": payload.get("input", {}), "output": payload.get("output", {}), "params": payload.get("params", {}), "taskId": payload.get("taskId", "ui-report")}
         result = execute_report(report_event)
-        return {"statusCode": 200, "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"}, "body": json.dumps({"ok": True, "report": result})}
+        md = f"## Report Executed\n\n- Type: `{result.get('reportType')}`\n- Output: `{result.get('outputPath')}`\n- OK: `{result.get('ok')}`\n"
+        return {"statusCode": 200, "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"}, "body": json.dumps({"ok": True, "report": result, "markdown": md})}
 
     result = call_bedrock(prompt)
-    return {"statusCode": 200, "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"}, "body": json.dumps(result)}
+    # Build markdown without 'Model Response' heading
+    md = "```\n" + str(result.get('model_response', '')) + "\n```"
+    return {"statusCode": 200, "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"}, "body": json.dumps({**result, "markdown": md})}
 
 
 # Local dev server

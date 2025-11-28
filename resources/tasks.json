@@ -19,5 +19,45 @@
     "enabled": true,
     "prompt": "[Task Scheduler] Notify me two minute later then remove this task",
     "outputPath": "results/task-20251127192123-96b59e-output.txt"
+  },
+  {
+    "taskId": "task-20251128030309-c405f0",
+    "cron": "*/1 * * * *",
+    "enabled": true,
+    "prompt": "[Task Scheduler] notify me after one minute just once",
+    "outputPath": "results/task-20251128030309-c405f0-output.txt"
+  },
+  {
+    "taskId": "task-20251128041614-a2c5bd",
+    "cron": "*/1",
+    "enabled": true,
+    "prompt": "[Task Scheduler] cron=*/1 * * * * outputPath=results/quick-task.txt",
+    "outputPath": "results/quick-task.txt"
+  },
+  {
+    "taskId": "task-20251128043649-347d5a",
+    "cron": "0 6 * * *",
+    "enabled": true,
+    "prompt": "今天下午2点把附件中的xlsx report发送给 j2fan@163.com\nRecipient: j2fan@163.com",
+    "outputPath": "results/task-20251128043649-347d5a-output.txt",
+    "attachments": [],
+    "meta": {
+      "runAt": "2025-11-28T06:00:00Z",
+      "email": "j2fan@163.com"
+    }
+  },
+  {
+    "taskId": "task-20251128051203-761494",
+    "cron": "*/1",
+    "enabled": true,
+    "prompt": "[Task Scheduler] cron=*/1 * * * * outputPath=results/quick-task.txt",
+    "outputPath": "results/quick-task.txt"
+  },
+  {
+    "taskId": "task-20251128052032-8da68f",
+    "cron": "*/1",
+    "enabled": true,
+    "prompt": "[Task Scheduler] cron=*/1 * * * * outputPath=results/quick-task.txt",
+    "outputPath": "results/quick-task.txt"
   }
 ]
